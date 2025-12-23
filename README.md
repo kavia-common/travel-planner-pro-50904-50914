@@ -12,6 +12,9 @@ Run backend (defaults to SQLite file db):
 - Env: TRAVEL_PLANNER_DB_URL optional (defaults to sqlite:///./travel_planner.db)
 - Start: uvicorn src.api.main:app --host 0.0.0.0 --port 3001
 
+CORS:
+- Configured open to all origins for development. For production, restrict to the frontend URL (e.g., http://localhost:3000).
+
 Regenerate OpenAPI JSON:
 - From backend root (travel_planner_backend): python -m src.api.generate_openapi
 - Output is saved to interfaces/openapi.json

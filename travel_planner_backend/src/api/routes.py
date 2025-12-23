@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from src.api.db import get_db
-from src.api import models
 from src.api.schemas import (
     TripCreate,
     TripUpdate,
@@ -30,14 +29,9 @@ from src.api.schemas import (
     DestinationSearchResult,
     PageMeta,
 )
+from src.api import services
 
 router = APIRouter()
-
-
-def apply_pagination(query, offset: int, limit: int):
-    total = query.count()
-    items = query.offset(offset).limit(limit).all()
-    return items, total
 
 
 # PUBLIC_INTERFACE
@@ -48,8 +42,7 @@ def list_trips(
     limit: int = Query(25, ge=1, le=100, description="Limit for pagination"),
 ):
     """List trips with pagination."""
-    q = db.query(models.Trip).order_by(models.Trip.created_at.desc())
-    items, total = apply_pagination(q, offset, limit)
+    items, total = services.list_trips(db, offset, limit)
     return {"items": [TripOut.model_validate(i) for i in items], "meta": PageMeta(total=total, offset=offset, limit=limit)}
 
 
@@ -57,17 +50,14 @@ def list_trips(
 @router.post("/trips", response_model=TripOut, status_code=status.HTTP_201_CREATED, tags=["Trips"], summary="Create trip", description="Create a new trip.")
 def create_trip(payload: TripCreate, db: Session = Depends(get_db)):
     """Create a trip."""
-    trip = models.Trip(**payload.model_dump())
-    db.add(trip)
-    db.commit()
-    db.refresh(trip)
+    trip = services.create_trip(db, payload.model_dump())
     return TripOut.model_validate(trip)
 
 
 # PUBLIC_INTERFACE
 @router.get("/trips/{trip_id}", response_model=TripOut, tags=["Trips"], summary="Get trip", description="Retrieve a trip by ID.")
 def get_trip(trip_id: int, db: Session = Depends(get_db)):
-    trip = db.get(models.Trip, trip_id)
+    trip = services.get_trip(db, trip_id)
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
     return TripOut.model_validate(trip)
@@ -76,25 +66,20 @@ def get_trip(trip_id: int, db: Session = Depends(get_db)):
 # PUBLIC_INTERFACE
 @router.put("/trips/{trip_id}", response_model=TripOut, tags=["Trips"], summary="Update trip", description="Update a trip by ID.")
 def update_trip(trip_id: int, payload: TripUpdate, db: Session = Depends(get_db)):
-    trip = db.get(models.Trip, trip_id)
+    trip = services.get_trip(db, trip_id)
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
-        setattr(trip, k, v)
-    db.add(trip)
-    db.commit()
-    db.refresh(trip)
-    return TripOut.model_validate(trip)
+    updated = services.update_trip(db, trip, payload.model_dump(exclude_unset=True))
+    return TripOut.model_validate(updated)
 
 
 # PUBLIC_INTERFACE
 @router.delete("/trips/{trip_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Trips"], summary="Delete trip", description="Delete a trip by ID.")
 def delete_trip(trip_id: int, db: Session = Depends(get_db)):
-    trip = db.get(models.Trip, trip_id)
+    trip = services.get_trip(db, trip_id)
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
-    db.delete(trip)
-    db.commit()
+    services.delete_trip(db, trip)
     return None
 
 
@@ -107,10 +92,7 @@ def list_destinations(
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     limit: int = Query(25, ge=1, le=100, description="Limit for pagination"),
 ):
-    q = db.query(models.Destination).order_by(models.Destination.created_at.desc())
-    if trip_id:
-        q = q.filter(models.Destination.trip_id == trip_id)
-    items, total = apply_pagination(q, offset, limit)
+    items, total = services.list_destinations(db, trip_id, offset, limit)
     return {"items": [DestinationOut.model_validate(i) for i in items], "meta": PageMeta(total=total, offset=offset, limit=limit)}
 
 
@@ -118,20 +100,17 @@ def list_destinations(
 @router.post("/destinations", response_model=DestinationOut, status_code=status.HTTP_201_CREATED, tags=["Destinations"], summary="Create destination", description="Create a destination for a trip.")
 def create_destination(payload: DestinationCreate, db: Session = Depends(get_db)):
     # ensure trip exists
-    trip = db.get(models.Trip, payload.trip_id)
+    trip = services.get_trip(db, payload.trip_id)
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
-    dest = models.Destination(**payload.model_dump())
-    db.add(dest)
-    db.commit()
-    db.refresh(dest)
+    dest = services.create_destination(db, payload.model_dump())
     return DestinationOut.model_validate(dest)
 
 
 # PUBLIC_INTERFACE
 @router.get("/destinations/{destination_id}", response_model=DestinationOut, tags=["Destinations"], summary="Get destination", description="Retrieve a destination by ID.")
 def get_destination(destination_id: int, db: Session = Depends(get_db)):
-    dest = db.get(models.Destination, destination_id)
+    dest = services.get_destination(db, destination_id)
     if not dest:
         raise HTTPException(status_code=404, detail="Destination not found")
     return DestinationOut.model_validate(dest)
@@ -140,25 +119,20 @@ def get_destination(destination_id: int, db: Session = Depends(get_db)):
 # PUBLIC_INTERFACE
 @router.put("/destinations/{destination_id}", response_model=DestinationOut, tags=["Destinations"], summary="Update destination", description="Update a destination by ID.")
 def update_destination(destination_id: int, payload: DestinationUpdate, db: Session = Depends(get_db)):
-    dest = db.get(models.Destination, destination_id)
+    dest = services.get_destination(db, destination_id)
     if not dest:
         raise HTTPException(status_code=404, detail="Destination not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
-        setattr(dest, k, v)
-    db.add(dest)
-    db.commit()
-    db.refresh(dest)
-    return DestinationOut.model_validate(dest)
+    updated = services.update_destination(db, dest, payload.model_dump(exclude_unset=True))
+    return DestinationOut.model_validate(updated)
 
 
 # PUBLIC_INTERFACE
 @router.delete("/destinations/{destination_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Destinations"], summary="Delete destination", description="Delete a destination by ID.")
 def delete_destination(destination_id: int, db: Session = Depends(get_db)):
-    dest = db.get(models.Destination, destination_id)
+    dest = services.get_destination(db, destination_id)
     if not dest:
         raise HTTPException(status_code=404, detail="Destination not found")
-    db.delete(dest)
-    db.commit()
+    services.delete_destination(db, dest)
     return None
 
 
@@ -172,33 +146,25 @@ def list_itinerary(
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     limit: int = Query(25, ge=1, le=100, description="Limit for pagination"),
 ):
-    q = db.query(models.ItineraryItem).order_by(models.ItineraryItem.created_at.desc())
-    if trip_id:
-        q = q.filter(models.ItineraryItem.trip_id == trip_id)
-    if destination_id:
-        q = q.filter(models.ItineraryItem.destination_id == destination_id)
-    items, total = apply_pagination(q, offset, limit)
+    items, total = services.list_itinerary_items(db, trip_id, destination_id, offset, limit)
     return {"items": [ItineraryItemOut.model_validate(i) for i in items], "meta": PageMeta(total=total, offset=offset, limit=limit)}
 
 
 # PUBLIC_INTERFACE
 @router.post("/itinerary", response_model=ItineraryItemOut, status_code=status.HTTP_201_CREATED, tags=["Itinerary"], summary="Create itinerary item", description="Create a new itinerary item for a trip.")
 def create_itinerary(payload: ItineraryItemCreate, db: Session = Depends(get_db)):
-    if not db.get(models.Trip, payload.trip_id):
+    if not services.get_trip(db, payload.trip_id):
         raise HTTPException(status_code=404, detail="Trip not found")
-    if payload.destination_id and not db.get(models.Destination, payload.destination_id):
+    if payload.destination_id and not services.get_destination(db, payload.destination_id):
         raise HTTPException(status_code=404, detail="Destination not found")
-    item = models.ItineraryItem(**payload.model_dump())
-    db.add(item)
-    db.commit()
-    db.refresh(item)
+    item = services.create_itinerary_item(db, payload.model_dump())
     return ItineraryItemOut.model_validate(item)
 
 
 # PUBLIC_INTERFACE
 @router.get("/itinerary/{item_id}", response_model=ItineraryItemOut, tags=["Itinerary"], summary="Get itinerary item", description="Retrieve an itinerary item by ID.")
 def get_itinerary(item_id: int, db: Session = Depends(get_db)):
-    item = db.get(models.ItineraryItem, item_id)
+    item = services.get_itinerary_item(db, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Itinerary item not found")
     return ItineraryItemOut.model_validate(item)
@@ -207,30 +173,25 @@ def get_itinerary(item_id: int, db: Session = Depends(get_db)):
 # PUBLIC_INTERFACE
 @router.put("/itinerary/{item_id}", response_model=ItineraryItemOut, tags=["Itinerary"], summary="Update itinerary item", description="Update an itinerary item by ID.")
 def update_itinerary(item_id: int, payload: ItineraryItemUpdate, db: Session = Depends(get_db)):
-    item = db.get(models.ItineraryItem, item_id)
+    item = services.get_itinerary_item(db, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Itinerary item not found")
     data = payload.model_dump(exclude_unset=True)
-    if "trip_id" in data and data["trip_id"] and not db.get(models.Trip, data["trip_id"]):
+    if "trip_id" in data and data["trip_id"] and not services.get_trip(db, data["trip_id"]):
         raise HTTPException(status_code=404, detail="Trip not found")
-    if "destination_id" in data and data["destination_id"] and not db.get(models.Destination, data["destination_id"]):
+    if "destination_id" in data and data["destination_id"] and not services.get_destination(db, data["destination_id"]):
         raise HTTPException(status_code=404, detail="Destination not found")
-    for k, v in data.items():
-        setattr(item, k, v)
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-    return ItineraryItemOut.model_validate(item)
+    updated = services.update_itinerary_item(db, item, data)
+    return ItineraryItemOut.model_validate(updated)
 
 
 # PUBLIC_INTERFACE
 @router.delete("/itinerary/{item_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Itinerary"], summary="Delete itinerary item", description="Delete an itinerary item by ID.")
 def delete_itinerary(item_id: int, db: Session = Depends(get_db)):
-    item = db.get(models.ItineraryItem, item_id)
+    item = services.get_itinerary_item(db, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Itinerary item not found")
-    db.delete(item)
-    db.commit()
+    services.delete_itinerary_item(db, item)
     return None
 
 
@@ -243,29 +204,23 @@ def list_accommodations(
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     limit: int = Query(25, ge=1, le=100, description="Limit for pagination"),
 ):
-    q = db.query(models.Accommodation).order_by(models.Accommodation.created_at.desc())
-    if trip_id:
-        q = q.filter(models.Accommodation.trip_id == trip_id)
-    items, total = apply_pagination(q, offset, limit)
+    items, total = services.list_accommodations(db, trip_id, offset, limit)
     return {"items": [AccommodationOut.model_validate(i) for i in items], "meta": PageMeta(total=total, offset=offset, limit=limit)}
 
 
 # PUBLIC_INTERFACE
 @router.post("/accommodations", response_model=AccommodationOut, status_code=status.HTTP_201_CREATED, tags=["Accommodations"], summary="Create accommodation", description="Create a new accommodation for a trip.")
 def create_accommodation(payload: AccommodationCreate, db: Session = Depends(get_db)):
-    if not db.get(models.Trip, payload.trip_id):
+    if not services.get_trip(db, payload.trip_id):
         raise HTTPException(status_code=404, detail="Trip not found")
-    acc = models.Accommodation(**payload.model_dump())
-    db.add(acc)
-    db.commit()
-    db.refresh(acc)
+    acc = services.create_accommodation(db, payload.model_dump())
     return AccommodationOut.model_validate(acc)
 
 
 # PUBLIC_INTERFACE
 @router.get("/accommodations/{acc_id}", response_model=AccommodationOut, tags=["Accommodations"], summary="Get accommodation", description="Retrieve an accommodation by ID.")
 def get_accommodation(acc_id: int, db: Session = Depends(get_db)):
-    acc = db.get(models.Accommodation, acc_id)
+    acc = services.get_accommodation(db, acc_id)
     if not acc:
         raise HTTPException(status_code=404, detail="Accommodation not found")
     return AccommodationOut.model_validate(acc)
@@ -274,28 +229,23 @@ def get_accommodation(acc_id: int, db: Session = Depends(get_db)):
 # PUBLIC_INTERFACE
 @router.put("/accommodations/{acc_id}", response_model=AccommodationOut, tags=["Accommodations"], summary="Update accommodation", description="Update an accommodation by ID.")
 def update_accommodation(acc_id: int, payload: AccommodationUpdate, db: Session = Depends(get_db)):
-    acc = db.get(models.Accommodation, acc_id)
+    acc = services.get_accommodation(db, acc_id)
     if not acc:
         raise HTTPException(status_code=404, detail="Accommodation not found")
     data = payload.model_dump(exclude_unset=True)
-    if "trip_id" in data and data["trip_id"] and not db.get(models.Trip, data["trip_id"]):
+    if "trip_id" in data and data["trip_id"] and not services.get_trip(db, data["trip_id"]):
         raise HTTPException(status_code=404, detail="Trip not found")
-    for k, v in data.items():
-        setattr(acc, k, v)
-    db.add(acc)
-    db.commit()
-    db.refresh(acc)
-    return AccommodationOut.model_validate(acc)
+    updated = services.update_accommodation(db, acc, data)
+    return AccommodationOut.model_validate(updated)
 
 
 # PUBLIC_INTERFACE
 @router.delete("/accommodations/{acc_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Accommodations"], summary="Delete accommodation", description="Delete an accommodation by ID.")
 def delete_accommodation(acc_id: int, db: Session = Depends(get_db)):
-    acc = db.get(models.Accommodation, acc_id)
+    acc = services.get_accommodation(db, acc_id)
     if not acc:
         raise HTTPException(status_code=404, detail="Accommodation not found")
-    db.delete(acc)
-    db.commit()
+    services.delete_accommodation(db, acc)
     return None
 
 
@@ -308,29 +258,23 @@ def list_transport(
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     limit: int = Query(25, ge=1, le=100, description="Limit for pagination"),
 ):
-    q = db.query(models.Transport).order_by(models.Transport.created_at.desc())
-    if trip_id:
-        q = q.filter(models.Transport.trip_id == trip_id)
-    items, total = apply_pagination(q, offset, limit)
+    items, total = services.list_transport(db, trip_id, offset, limit)
     return {"items": [TransportOut.model_validate(i) for i in items], "meta": PageMeta(total=total, offset=offset, limit=limit)}
 
 
 # PUBLIC_INTERFACE
 @router.post("/transport", response_model=TransportOut, status_code=status.HTTP_201_CREATED, tags=["Transport"], summary="Create transport", description="Create a new transport entry for a trip.")
 def create_transport(payload: TransportCreate, db: Session = Depends(get_db)):
-    if not db.get(models.Trip, payload.trip_id):
+    if not services.get_trip(db, payload.trip_id):
         raise HTTPException(status_code=404, detail="Trip not found")
-    t = models.Transport(**payload.model_dump())
-    db.add(t)
-    db.commit()
-    db.refresh(t)
+    t = services.create_transport(db, payload.model_dump())
     return TransportOut.model_validate(t)
 
 
 # PUBLIC_INTERFACE
 @router.get("/transport/{transport_id}", response_model=TransportOut, tags=["Transport"], summary="Get transport", description="Retrieve a transport entry by ID.")
 def get_transport(transport_id: int, db: Session = Depends(get_db)):
-    t = db.get(models.Transport, transport_id)
+    t = services.get_transport(db, transport_id)
     if not t:
         raise HTTPException(status_code=404, detail="Transport not found")
     return TransportOut.model_validate(t)
@@ -339,28 +283,23 @@ def get_transport(transport_id: int, db: Session = Depends(get_db)):
 # PUBLIC_INTERFACE
 @router.put("/transport/{transport_id}", response_model=TransportOut, tags=["Transport"], summary="Update transport", description="Update a transport entry by ID.")
 def update_transport(transport_id: int, payload: TransportUpdate, db: Session = Depends(get_db)):
-    t = db.get(models.Transport, transport_id)
+    t = services.get_transport(db, transport_id)
     if not t:
         raise HTTPException(status_code=404, detail="Transport not found")
     data = payload.model_dump(exclude_unset=True)
-    if "trip_id" in data and data["trip_id"] and not db.get(models.Trip, data["trip_id"]):
+    if "trip_id" in data and data["trip_id"] and not services.get_trip(db, data["trip_id"]):
         raise HTTPException(status_code=404, detail="Trip not found")
-    for k, v in data.items():
-        setattr(t, k, v)
-    db.add(t)
-    db.commit()
-    db.refresh(t)
-    return TransportOut.model_validate(t)
+    updated = services.update_transport(db, t, data)
+    return TransportOut.model_validate(updated)
 
 
 # PUBLIC_INTERFACE
 @router.delete("/transport/{transport_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Transport"], summary="Delete transport", description="Delete a transport entry by ID.")
 def delete_transport(transport_id: int, db: Session = Depends(get_db)):
-    t = db.get(models.Transport, transport_id)
+    t = services.get_transport(db, transport_id)
     if not t:
         raise HTTPException(status_code=404, detail="Transport not found")
-    db.delete(t)
-    db.commit()
+    services.delete_transport(db, t)
     return None
 
 
@@ -373,29 +312,23 @@ def list_notes(
     offset: int = Query(0, ge=0, description="Offset for pagination"),
     limit: int = Query(25, ge=1, le=100, description="Limit for pagination"),
 ):
-    q = db.query(models.Note).order_by(models.Note.created_at.desc())
-    if trip_id:
-        q = q.filter(models.Note.trip_id == trip_id)
-    items, total = apply_pagination(q, offset, limit)
+    items, total = services.list_notes(db, trip_id, offset, limit)
     return {"items": [NoteOut.model_validate(i) for i in items], "meta": PageMeta(total=total, offset=offset, limit=limit)}
 
 
 # PUBLIC_INTERFACE
 @router.post("/notes", response_model=NoteOut, status_code=status.HTTP_201_CREATED, tags=["Notes"], summary="Create note", description="Create a new note for a trip.")
 def create_note(payload: NoteCreate, db: Session = Depends(get_db)):
-    if not db.get(models.Trip, payload.trip_id):
+    if not services.get_trip(db, payload.trip_id):
         raise HTTPException(status_code=404, detail="Trip not found")
-    n = models.Note(**payload.model_dump())
-    db.add(n)
-    db.commit()
-    db.refresh(n)
+    n = services.create_note(db, payload.model_dump())
     return NoteOut.model_validate(n)
 
 
 # PUBLIC_INTERFACE
 @router.get("/notes/{note_id}", response_model=NoteOut, tags=["Notes"], summary="Get note", description="Retrieve a note by ID.")
 def get_note(note_id: int, db: Session = Depends(get_db)):
-    n = db.get(models.Note, note_id)
+    n = services.get_note(db, note_id)
     if not n:
         raise HTTPException(status_code=404, detail="Note not found")
     return NoteOut.model_validate(n)
@@ -404,28 +337,23 @@ def get_note(note_id: int, db: Session = Depends(get_db)):
 # PUBLIC_INTERFACE
 @router.put("/notes/{note_id}", response_model=NoteOut, tags=["Notes"], summary="Update note", description="Update a note by ID.")
 def update_note(note_id: int, payload: NoteUpdate, db: Session = Depends(get_db)):
-    n = db.get(models.Note, note_id)
+    n = services.get_note(db, note_id)
     if not n:
         raise HTTPException(status_code=404, detail="Note not found")
     data = payload.model_dump(exclude_unset=True)
-    if "trip_id" in data and data["trip_id"] and not db.get(models.Trip, data["trip_id"]):
+    if "trip_id" in data and data["trip_id"] and not services.get_trip(db, data["trip_id"]):
         raise HTTPException(status_code=404, detail="Trip not found")
-    for k, v in data.items():
-        setattr(n, k, v)
-    db.add(n)
-    db.commit()
-    db.refresh(n)
-    return NoteOut.model_validate(n)
+    updated = services.update_note(db, n, data)
+    return NoteOut.model_validate(updated)
 
 
 # PUBLIC_INTERFACE
 @router.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Notes"], summary="Delete note", description="Delete a note by ID.")
 def delete_note(note_id: int, db: Session = Depends(get_db)):
-    n = db.get(models.Note, note_id)
+    n = services.get_note(db, note_id)
     if not n:
         raise HTTPException(status_code=404, detail="Note not found")
-    db.delete(n)
-    db.commit()
+    services.delete_note(db, n)
     return None
 
 
