@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-from typing import Optional, Tuple, Sequence, List
+from typing import Optional, Tuple, Sequence, List, Any
 
-from sqlalchemy.orm import Session, Query
+from sqlalchemy.orm import Session
 
 from src.api import models
 
 
-def _paginate(q: Query, offset: int, limit: int) -> Tuple[Sequence, int]:
+def _paginate(q: Any, offset: int, limit: int) -> Tuple[Sequence, int]:
     """
-    Internal helper to apply pagination to a SQLAlchemy query.
+    Internal helper to apply pagination to a SQLAlchemy query-like object.
     Returns the items and total count.
     """
+    # q is expected to be a SQLAlchemy Query or Select with count/offset/limit/all
     total = q.count()
     items = q.offset(offset).limit(limit).all()
     return items, total
