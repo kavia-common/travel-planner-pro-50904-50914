@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.db import init_db
+from src.api.routes import router as api_router
 
 openapi_tags = [
     {"name": "Health", "description": "Health checks and service status."},
@@ -20,6 +21,7 @@ app = FastAPI(
     openapi_tags=openapi_tags,
 )
 
+# Keep existing CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, restrict to frontend URL
@@ -35,6 +37,7 @@ def on_startup() -> None:
     init_db()
 
 
+# PUBLIC_INTERFACE
 @app.get("/", tags=["Health"], summary="Health Check", operation_id="health_check_root_get")
 def health_check():
     """Health check endpoint.
@@ -43,3 +46,7 @@ def health_check():
         dict: Simple status message indicating the service is healthy.
     """
     return {"message": "Healthy"}
+
+
+# Include API routes
+app.include_router(api_router)
